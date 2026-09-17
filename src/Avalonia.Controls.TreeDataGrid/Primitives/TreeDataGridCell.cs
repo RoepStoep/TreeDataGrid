@@ -85,6 +85,10 @@ namespace Avalonia.Controls.Primitives
             ((INaturalWidthMeasureCache)this).NaturalDesiredSize = null;
             IsSelected = selection?.IsCellSelected(columnIndex, rowIndex) ?? false;
 
+            // Recycled descendants keep IsMeasureValid with the previous Infinity constraint,
+            // so child.Measure/Arrange no-op unless this subtree is invalidated.
+            InvalidateSubtreeLayout(this);
+
             _treeDataGrid?.RaiseCellPrepared(this, columnIndex, RowIndex);
         }
 
@@ -334,6 +338,18 @@ namespace Avalonia.Controls.Primitives
 
             return enabledGestures.HasFlag(BeginEditGestures.WhenSelected) ?
                 IsEffectivelySelected : true;
+        }
+
+        private static void InvalidateSubtreeLayout(Control control)
+        {
+            control.InvalidateMeasure();
+            control.InvalidateArrange();
+
+            foreach (var visual in control.GetVisualChildren())
+            {
+                if (visual is Control child)
+                    InvalidateSubtreeLayout(child);
+            }
         }
     }
 }

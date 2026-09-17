@@ -7,6 +7,7 @@ using Avalonia.Collections;
 using Avalonia.Controls.Models.TreeDataGrid;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
+using Avalonia.Data;
 using Avalonia.Headless.XUnit;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
@@ -61,6 +62,80 @@ namespace Avalonia.Controls.TreeDataGridTests
             Layout(target);
 
             Assert.Equal(10, target.RowsPresenter!.RealizedElements.Count);
+        }
+
+        [AvaloniaFact(Timeout = 10000)]
+        public void Already_Expanded_Insert_Arranges_Recycled_Text_To_Desired_Width()
+        {
+            var items = new AvaloniaList<Model>
+            {
+                new Model
+                {
+                    Title = "Parent",
+                    Children = new AvaloniaList<Model> { new Model { Title = "Child" } },
+                },
+                new Model { Title = "AA" },
+            };
+
+            var (target, source) = CreateTarget(
+                columns: new IColumn<Model>[]
+                {
+                    new HierarchicalExpanderColumn<Model>(
+                        new TemplateColumn<Model>(
+                            "Title",
+                            new FuncDataTemplate<Model>((_, _) => new StackPanel
+                            {
+                                Orientation = Orientation.Horizontal,
+                                Children =
+                                {
+                                    new TextBlock
+                                    {
+                                        Name = "TitleText",
+                                        [!TextBlock.TextProperty] = new Binding(nameof(Model.Title)),
+                                    },
+                                },
+                            }, supportsRecycling: true)),
+                        x => x.Children,
+                        isExpandedSelector: x => x.IsExpanded),
+                },
+                items: items);
+
+            source.Expand(new IndexPath(0));
+            Layout(target);
+            Dispatcher.UIThread.RunJobs();
+
+            items.Clear();
+            items.Add(new Model
+            {
+                Title = "Parent",
+                IsExpanded = true,
+                Children = new AvaloniaList<Model> { new Model { Title = "Child" } },
+            });
+            items.Add(new Model { Title = "AA" });
+            Layout(target);
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(3, source.Rows.Count);
+            AssertTitleTextsFillDesiredWidth();
+
+            void AssertTitleTextsFillDesiredWidth()
+            {
+                var titles = target.RowsPresenter!.GetVisualChildren()
+                    .OfType<TreeDataGridRow>()
+                    .Where(row => row.RowIndex >= 0)
+                    .OrderBy(row => row.RowIndex)
+                    .Select(row => row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "TitleText"))
+                    .ToList();
+
+                Assert.NotEmpty(titles);
+                Assert.All(titles, text =>
+                {
+                    Assert.True(text.DesiredSize.Width > 0, $"{text.Text} DesiredSize.Width was 0.");
+                    Assert.True(
+                        text.Bounds.Width + 0.5 >= text.DesiredSize.Width,
+                        $"{text.Text}: Bounds={text.Bounds} DesiredSize={text.DesiredSize}.");
+                });
+            }
         }
 
         [AvaloniaFact(Timeout = 10000)]
@@ -570,9 +645,10 @@ namespace Avalonia.Controls.TreeDataGridTests
 
         private static (TreeDataGrid, HierarchicalTreeDataGridSource<Model>) CreateTarget(
             IEnumerable<IColumn<Model>>? columns = null,
-            bool runLayout = true)
+            bool runLayout = true,
+            IEnumerable<Model>? items = null)
         {
-            var items = new AvaloniaList<Model>
+            var itemList = items as AvaloniaList<Model> ?? new AvaloniaList<Model>(items ?? new[]
             {
                 new Model
                 {
@@ -585,7 +661,7 @@ namespace Avalonia.Controls.TreeDataGridTests
                     Id = 1,
                     Title = "Root 1",
                 },
-            };
+            });
 
             columns ??= new IColumn<Model>[]
             {
@@ -596,7 +672,7 @@ namespace Avalonia.Controls.TreeDataGridTests
                 new TextColumn<Model, string?>("Title", x => x.Title),
             };
 
-            var source = new HierarchicalTreeDataGridSource<Model>(items);
+            var source = new HierarchicalTreeDataGridSource<Model>(itemList);
             source.Columns.AddRange(columns);
 
             var target = new TreeDataGrid
@@ -661,9 +737,17 @@ namespace Avalonia.Controls.TreeDataGridTests
 
         private class Model : NotifyingBase
         {
+            private bool _isExpanded;
+
             public int Id { get; set; }
             public string? Title { get; set; }
             public AvaloniaList<Model>? Children { get; set; }
+
+            public bool IsExpanded
+            {
+                get => _isExpanded;
+                set => RaiseAndSetIfChanged(ref _isExpanded, value);
+            }
         }
     }
 }
