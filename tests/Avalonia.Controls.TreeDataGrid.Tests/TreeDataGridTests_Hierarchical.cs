@@ -65,7 +65,7 @@ namespace Avalonia.Controls.TreeDataGridTests
         }
 
         [AvaloniaFact(Timeout = 10000)]
-        public void Already_Expanded_Insert_Arranges_Recycled_Text_To_Desired_Width()
+        public void Recycled_Expander_Template_Text_Arranges_To_Desired_Width()
         {
             var items = new AvaloniaList<Model>
             {
@@ -95,46 +95,37 @@ namespace Avalonia.Controls.TreeDataGridTests
                                     },
                                 },
                             }, supportsRecycling: true)),
-                        x => x.Children,
-                        isExpandedSelector: x => x.IsExpanded),
+                        x => x.Children),
                 },
                 items: items);
 
+            var before = TitleTexts();
+            Assert.Equal(new[] { "Parent", "AA" }, before.Select(t => t.Text));
+
+            // One child insert with two realized rows recycles AA onto Child.
             source.Expand(new IndexPath(0));
             Layout(target);
-            Dispatcher.UIThread.RunJobs();
-
-            items.Clear();
-            items.Add(new Model
-            {
-                Title = "Parent",
-                IsExpanded = true,
-                Children = new AvaloniaList<Model> { new Model { Title = "Child" } },
-            });
-            items.Add(new Model { Title = "AA" });
-            Layout(target);
-            Dispatcher.UIThread.RunJobs();
 
             Assert.Equal(3, source.Rows.Count);
-            AssertTitleTextsFillDesiredWidth();
-
-            void AssertTitleTextsFillDesiredWidth()
+            var after = TitleTexts();
+            Assert.Equal(new[] { "Parent", "Child", "AA" }, after.Select(t => t.Text));
+            Assert.Same(before[1], after[1]);
+            Assert.All(after, text =>
             {
-                var titles = target.RowsPresenter!.GetVisualChildren()
+                Assert.True(text.DesiredSize.Width > 0, $"{text.Text} DesiredSize.Width was 0.");
+                Assert.True(
+                    text.Bounds.Width + 0.5 >= text.DesiredSize.Width,
+                    $"{text.Text}: Bounds={text.Bounds} DesiredSize={text.DesiredSize}.");
+            });
+
+            List<TextBlock> TitleTexts()
+            {
+                return target.RowsPresenter!.GetVisualChildren()
                     .OfType<TreeDataGridRow>()
                     .Where(row => row.RowIndex >= 0)
                     .OrderBy(row => row.RowIndex)
                     .Select(row => row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "TitleText"))
                     .ToList();
-
-                Assert.NotEmpty(titles);
-                Assert.All(titles, text =>
-                {
-                    Assert.True(text.DesiredSize.Width > 0, $"{text.Text} DesiredSize.Width was 0.");
-                    Assert.True(
-                        text.Bounds.Width + 0.5 >= text.DesiredSize.Width,
-                        $"{text.Text}: Bounds={text.Bounds} DesiredSize={text.DesiredSize}.");
-                });
             }
         }
 
@@ -737,17 +728,9 @@ namespace Avalonia.Controls.TreeDataGridTests
 
         private class Model : NotifyingBase
         {
-            private bool _isExpanded;
-
             public int Id { get; set; }
             public string? Title { get; set; }
             public AvaloniaList<Model>? Children { get; set; }
-
-            public bool IsExpanded
-            {
-                get => _isExpanded;
-                set => RaiseAndSetIfChanged(ref _isExpanded, value);
-            }
         }
     }
 }
